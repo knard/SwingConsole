@@ -9,6 +9,9 @@ import java.awt.Graphics;
 import java.awt.Rectangle;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -20,6 +23,10 @@ import javax.swing.JScrollPane;
 import jline.Terminal;
 
 public class Console extends JPanel implements Terminal {
+
+	private static final class Selection {
+		int startX, startY, endX, endY;
+	}
 
 	private static final class CursorThread extends Thread {
 
@@ -54,8 +61,53 @@ public class Console extends JPanel implements Terminal {
 	private static final class ConsolePane extends Component {
 		private Console console;
 
+		private static enum State {
+			waitingForSelection, selecting, selected;
+		}
+
+		private State state = State.waitingForSelection;
+
+		private Selection actualSelection = new Selection();
+
 		public ConsolePane(Console console) {
 			this.console = console;
+			addMouseListener(new MouseAdapter() {
+
+				@Override
+				public void mousePressed(MouseEvent e) {
+					if (state == State.waitingForSelection || state == State.selected) {
+						actualSelection.startX = actualSelection.endX = e.getX() / ConsolePane.this.console.getCharWidth();
+						actualSelection.startY = actualSelection.endY = (e.getY() - FIRST_LINE_OFFSET) / ConsolePane.this.console.getCharHeight();
+						state = State.selecting;
+					}
+				}
+
+				@Override
+				public void mouseReleased(MouseEvent e) {
+					if (state == State.selecting) {
+						actualSelection.endX = e.getX() / ConsolePane.this.console.getCharWidth();
+						actualSelection.endY = (e.getY() - FIRST_LINE_OFFSET) / ConsolePane.this.console.getCharHeight();
+						if (actualSelection.startX != actualSelection.endX || actualSelection.startY != actualSelection.endY) {
+							state = State.selected;
+						} else {
+							state = State.waitingForSelection;
+						}
+						ConsolePane.this.console.repaint();
+					}
+				}
+
+			});
+
+			addMouseMotionListener(new MouseMotionAdapter() {
+				@Override
+				public void mouseDragged(MouseEvent e) {
+					if (state == State.selecting) {
+						actualSelection.endX = e.getX() / ConsolePane.this.console.getCharWidth();
+						actualSelection.endY = (e.getY() - FIRST_LINE_OFFSET) / ConsolePane.this.console.getCharHeight();
+						ConsolePane.this.console.repaint();
+					}
+				}
+			});
 		}
 
 		@Override
@@ -82,14 +134,71 @@ public class Console extends JPanel implements Terminal {
 				endRow = console.rowCount - 1;
 			}
 			g.setFont(console.getCharFont());
+			Selection s = getSelection();
 			for (int row = startRow; row <= endRow; row++) {
-				g.drawChars(console.charBuffer[row], startColumn, length, 0, ((row + 1) * console.getCharHeight()) - console.getCharDescending() + FIRST_LINE_OFFSET);
+				if (state == State.waitingForSelection || row < s.startY || row > s.endY) {
+					g.setColor(Color.GREEN);
+					g.drawChars(console.charBuffer[row], startColumn, length, 0, ((row + 1) * console.getCharHeight()) - console.getCharDescending() + FIRST_LINE_OFFSET);
+				} else {
+					int startColSelection = 0;
+					int endColSelection = console.columnCount;
+					if (row == s.startY) {
+						startColSelection =  s.startX;
+					}
+					if (row == s.endY) {
+						endColSelection = s.endX;
+					}
+					if (startColSelection < startColumn) {
+						startColSelection = startColumn;
+					}
+					if (endColSelection > endColumn) {
+						endColSelection = endColumn;
+					}
+					if (startColSelection > startColumn) {
+						g.setColor(Color.GREEN);
+						g.drawChars(console.charBuffer[row], startColumn, startColSelection - startColumn, 0, ((row + 1) * console.getCharHeight()) - console.getCharDescending() + FIRST_LINE_OFFSET);
+					}
+					g.setColor(Color.GREEN);
+					g.fillRect(startColSelection * console.getCharWidth(), row * console.getCharHeight() + FIRST_LINE_OFFSET, (endColSelection - startColSelection+1) * console.getCharWidth(),
+							console.getCharHeight());
+					g.setColor(Color.BLACK);
+					g.drawChars(console.charBuffer[row], startColSelection, endColSelection - startColSelection, (startColSelection) * console.getCharWidth(), ((row + 1) * console.getCharHeight())
+							- console.getCharDescending() + FIRST_LINE_OFFSET);
+					if (endColSelection < endColumn) {
+						g.setColor(Color.GREEN);
+						g.drawChars(console.charBuffer[row], endColSelection, endColumn - endColSelection, (endColSelection - startColumn) * console.getCharWidth(),
+								((row + 1) * console.getCharHeight()) - console.getCharDescending() + FIRST_LINE_OFFSET);
+					}
+				}
 			}
-			if (console.cursorIsOn) {
+			if (console.cursorIsOn) { // TODO don't draw cursor when it's outside screen
+				g.setColor(Color.GREEN);
 				g.fillRect(console.x * console.getCharWidth(), console.y * console.getCharHeight() + FIRST_LINE_OFFSET, console.getCharWidth(), console.getCharHeight());
 				g.setColor(Color.BLACK);
-				g.drawChars(console.charBuffer[console.y], console.x, 1, console.x * console.getCharWidth(), ((console.y + 1) * console.getCharHeight()) - console.getCharDescending() + FIRST_LINE_OFFSET);
+				g.drawChars(console.charBuffer[console.y], console.x, 1, console.x * console.getCharWidth(), ((console.y + 1) * console.getCharHeight()) - console.getCharDescending()
+						+ FIRST_LINE_OFFSET);
 			}
+		}
+
+		private Selection getSelection() {
+			Selection s =new Selection();
+			s.startX = actualSelection.startX;
+			s.startY = actualSelection.startY;
+			s.endX = actualSelection.endX;
+			s.endY = actualSelection.endY;
+			if (s.endY < s.startY) {
+				int tmpX = s.startX;
+				int tmpY = s.startY;
+				s.startX = s.endX;
+				s.startY = s.endY;
+				s.endX = tmpX;
+				s.endY = tmpY;
+			} else if (s.endY == s.startY && s.endX < s.startX) {
+				int tmpX = s.startX;
+				s.startX = s.endX;
+				s.endX = tmpX;
+			}
+			return s;
 		}
 
 	}
@@ -237,20 +346,20 @@ public class Console extends JPanel implements Terminal {
 	public void setEchoEnabled(boolean enabled) {
 		echoEnalbed = enabled;
 	}
-	
+
 	int endLineSequencePosition = 0;
 
 	public void write(int c) {
-		if( c == lineSep[endLineSequencePosition]) {
+		if (c == lineSep[endLineSequencePosition]) {
 			endLineSequencePosition++;
-			if( endLineSequencePosition == lineSep.length) {
+			if (endLineSequencePosition == lineSep.length) {
 				y++;
-				x=0;
-				endLineSequencePosition=0;
+				x = 0;
+				endLineSequencePosition = 0;
 			}
 			return;
 		} else {
-			endLineSequencePosition=0;
+			endLineSequencePosition = 0;
 		}
 		if (c == 10) {
 			y++;
