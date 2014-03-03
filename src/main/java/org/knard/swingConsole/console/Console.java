@@ -87,6 +87,8 @@ public class Console extends JPanel implements Terminal {
 			}
 			if (console.cursorIsOn) {
 				g.fillRect(console.x * console.getCharWidth(), console.y * console.getCharHeight() + FIRST_LINE_OFFSET, console.getCharWidth(), console.getCharHeight());
+				g.setColor(Color.BLACK);
+				g.drawChars(console.charBuffer[console.y], console.x, 1, console.x * console.getCharWidth(), ((console.y + 1) * console.getCharHeight()) - console.getCharDescending() + FIRST_LINE_OFFSET);
 			}
 		}
 
