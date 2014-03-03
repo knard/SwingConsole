@@ -6,12 +6,14 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Graphics;
+import java.awt.GraphicsEnvironment;
 import java.awt.Rectangle;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Arrays;
 
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -48,11 +50,7 @@ public class Console extends JPanel implements Terminal {
 
 	}
 
-	private final static int CHARACTER_WIDTH = 7;
-	private final static int CHARACTER_HEIGHT = 13;
-	private final static int CHARACTER_BASELINE_OFFSET = -3;
 	private final static int FIRST_LINE_OFFSET = 1;
-	private final static Font FONT = Font.decode("Consolas 12");
 
 	private static final class ConsolePane extends Component {
 		private Console console;
@@ -63,8 +61,7 @@ public class Console extends JPanel implements Terminal {
 
 		@Override
 		public Dimension getPreferredSize() {
-			Dimension d = new Dimension(console.columnCount * CHARACTER_WIDTH,
-					console.rowCount * CHARACTER_HEIGHT);
+			Dimension d = new Dimension(console.columnCount * console.getCharWidth(), console.rowCount * console.getCharHeight());
 			return d;
 		}
 
@@ -74,30 +71,59 @@ public class Console extends JPanel implements Terminal {
 			g.setColor(Color.BLACK);
 			g.fillRect(clip.x, clip.y, clip.width, clip.height);
 			g.setColor(Color.GREEN);
-			int startColumn = clip.x / CHARACTER_WIDTH;
-			int endColumn = ((clip.x + clip.width) / CHARACTER_WIDTH) + 1;
+			int startColumn = clip.x / console.getCharWidth();
+			int endColumn = ((clip.x + clip.width) / console.getCharWidth()) + 1;
 			if (endColumn >= console.columnCount) {
 				endColumn = console.columnCount - 1;
 			}
 			int length = endColumn - startColumn;
-			int startRow = clip.y / CHARACTER_HEIGHT;
-			int endRow = ((clip.y + clip.height) / CHARACTER_HEIGHT) + 1;
+			int startRow = clip.y / console.getCharHeight();
+			int endRow = ((clip.y + clip.height) / console.getCharHeight()) + 1;
 			if (endRow >= console.rowCount) {
 				endRow = console.rowCount - 1;
 			}
-			g.setFont(FONT);
+			g.setFont(console.getCharFont());
 			for (int row = startRow; row <= endRow; row++) {
-				g.drawChars(console.charBuffer[row], startColumn, length, 0,
-						((row + 1) * CHARACTER_HEIGHT)
-								+ CHARACTER_BASELINE_OFFSET + FIRST_LINE_OFFSET);
+				g.drawChars(console.charBuffer[row], startColumn, length, 0, ((row + 1) * console.getCharHeight()) - console.getCharDescending() + FIRST_LINE_OFFSET);
 			}
 			if (console.cursorIsOn) {
-				g.fillRect(console.x * CHARACTER_WIDTH, console.y
-						* CHARACTER_HEIGHT + FIRST_LINE_OFFSET,
-						CHARACTER_WIDTH, CHARACTER_HEIGHT);
+				g.fillRect(console.x * console.getCharWidth(), console.y * console.getCharHeight() + FIRST_LINE_OFFSET, console.getCharWidth(), console.getCharHeight());
 			}
 		}
 
+	}
+
+	private Font FONT;
+	private int CHAR_HEIGHT;
+	private int CHAR_WIDTH;
+	private int CHAR_DESCENT;
+
+	private synchronized int getCharDescending() {
+		if (CHAR_DESCENT == 0) {
+			CHAR_DESCENT = getGraphics().getFontMetrics(getCharFont()).getMaxDescent();
+		}
+		return CHAR_DESCENT;
+	}
+
+	private synchronized Font getCharFont() {
+		if (FONT == null) {
+			FONT = Font.decode("Monospaced");
+		}
+		return FONT;
+	}
+
+	private synchronized int getCharHeight() {
+		if (CHAR_HEIGHT == 0) {
+			CHAR_HEIGHT = getGraphics().getFontMetrics(getCharFont()).getHeight();
+		}
+		return CHAR_HEIGHT;
+	}
+
+	private synchronized int getCharWidth() {
+		if (CHAR_WIDTH == 0) {
+			CHAR_WIDTH = getGraphics().getFontMetrics(getCharFont()).getWidths()['W'];
+		}
+		return CHAR_WIDTH;
 	}
 
 	private int columnCount;
@@ -106,6 +132,7 @@ public class Console extends JPanel implements Terminal {
 	private char[][] charBuffer;
 	private ConsolePane consolePane;
 	private boolean cursorIsOn;
+	private static final byte[] lineSep = System.getProperty("line.separator").getBytes();
 
 	public Console() {
 		this(80, 80);
@@ -137,11 +164,12 @@ public class Console extends JPanel implements Terminal {
 		this.columnCount = height;
 		this.rowCount = width;
 		this.charBuffer = new char[rowCount][columnCount];
+		for (int i = 0; i < rowCount; i++) {
+			Arrays.fill(charBuffer[i], ' ');
+		}
 		this.setLayout(new BorderLayout());
 		this.consolePane = new ConsolePane(this);
-		JScrollPane scrollpane = new JScrollPane(consolePane,
-				JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,
-				JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS);
+		JScrollPane scrollpane = new JScrollPane(consolePane, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS, JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS);
 		this.add(scrollpane, BorderLayout.CENTER);
 
 		addKeyListener(new KeyAdapter() {
@@ -167,6 +195,9 @@ public class Console extends JPanel implements Terminal {
 
 	public void reset() throws Exception {
 		this.charBuffer = new char[rowCount][columnCount];
+		for (int i = 0; i < rowCount; i++) {
+			Arrays.fill(charBuffer[i], ' ');
+		}
 		x = 0;
 		y = 0;
 		consolePane.repaint();
@@ -205,8 +236,21 @@ public class Console extends JPanel implements Terminal {
 	public void setEchoEnabled(boolean enabled) {
 		echoEnalbed = enabled;
 	}
+	
+	int endLineSequencePosition = 0;
 
 	public void write(int c) {
+		if( c == lineSep[endLineSequencePosition]) {
+			endLineSequencePosition++;
+			if( endLineSequencePosition == lineSep.length) {
+				y++;
+				x=0;
+				endLineSequencePosition=0;
+			}
+			return;
+		} else {
+			endLineSequencePosition=0;
+		}
 		if (c == 10) {
 			y++;
 		} else if (c == 13) {
@@ -232,6 +276,7 @@ public class Console extends JPanel implements Terminal {
 			charBuffer[i] = charBuffer[i + 1];
 		}
 		charBuffer[lastRow] = new char[columnCount];
+		Arrays.fill(charBuffer[lastRow], ' ');
 	}
 
 	public void displayCursor() {
