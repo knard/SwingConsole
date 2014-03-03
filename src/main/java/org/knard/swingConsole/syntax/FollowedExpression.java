@@ -6,8 +6,6 @@ import org.knard.swingConsole.helper.StringHelper.StringPart;
 
 public class FollowedExpression extends AbstractLogicalExpressionNode implements LogicalExpressionNode {
 
-	private int pos;
-
 	@Override
 	public List<String> getPropositions(Syntax syntax, List<StringPart> parts, int index, String filter) throws ParseException {
 		int childIndex = index - pos;
@@ -19,7 +17,7 @@ public class FollowedExpression extends AbstractLogicalExpressionNode implements
 
 	@Override
 	public void setNodeSyntaxicPosition(int pos) {
-		this.pos = pos;
+		super.setNodeSyntaxicPosition(pos);
 		for (SyntaxNode node : childrenNodes) {
 			node.setNodeSyntaxicPosition(pos++);
 		}

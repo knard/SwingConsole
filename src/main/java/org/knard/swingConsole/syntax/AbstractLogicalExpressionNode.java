@@ -3,7 +3,7 @@ package org.knard.swingConsole.syntax;
 import java.util.ArrayList;
 import java.util.List;
 
-public abstract class AbstractLogicalExpressionNode implements LogicalExpressionNode {
+public abstract class AbstractLogicalExpressionNode extends AbstractSyntaxNode implements LogicalExpressionNode {
 
 	protected List<SyntaxNode> childrenNodes = new ArrayList<SyntaxNode>();
 
